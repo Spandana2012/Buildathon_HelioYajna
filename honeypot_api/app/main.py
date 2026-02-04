@@ -1,38 +1,38 @@
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import JSONResponse
-from fastapi.requests import Request
 import os
+from fastapi import FastAPI, Header, Request
+from fastapi.responses import JSONResponse
 
-from honeypot_api.app.detector import detect_scam
-from honeypot_api.app.extractor import extract_intelligence
-from honeypot_api.app.memory import update_conversation, get_metrics
+from app.detector import detect_scam
+from app.extractor import extract_intelligence
+from app.memory import update_conversation, get_metrics
 
 app = FastAPI()
 
 API_KEY = os.getenv("API_KEY", "changeme")
 
-@app.post("/honeypot", include_in_schema=False)
-async def honeypot(
-    request: Request,
-    x_api_key: str = Header(None)
-):
-    # API key check
+@app.api_route("/honeypot", methods=["POST", "GET"])
+async def honeypot(request: Request, x_api_key: str = Header(None)):
+
+    # Always return JSON (even for errors)
     if x_api_key != API_KEY:
         return JSONResponse(
             status_code=401,
-            content={"detail": "Unauthorized"}
+            content={"scam_detected": False,
+                     "engagement_metrics": {"conversation_turns": 0, "engagement_duration_seconds": 0},
+                     "extracted_intelligence": {"bank_accounts": [], "upi_ids": [], "phishing_links": []}}
         )
 
-    # NEVER force JSON parsing
+    # Read body safely
     body = {}
-    if request.headers.get("content-type") == "application/json":
-        try:
-            body = await request.json()
-        except Exception:
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
             body = {}
+    except Exception:
+        body = {}
 
-    conversation_id = str(body.get("conversation_id", "default"))
-    message = str(body.get("message", ""))
+    conversation_id = str(body.get("conversation_id") or "default")
+    message = str(body.get("message") or "")
 
     # Safe memory
     try:
@@ -41,22 +41,19 @@ async def honeypot(
     except Exception:
         turns, duration = 1, 0
 
-    # Safe logic
+    # Safe scam detection
     try:
         scam_detected = detect_scam(message)
     except Exception:
         scam_detected = False
 
+    # Safe extraction
     try:
         extracted = extract_intelligence(message)
     except Exception:
-        extracted = {
-            "bank_accounts": [],
-            "upi_ids": [],
-            "phishing_links": []
-        }
+        extracted = {"bank_accounts": [], "upi_ids": [], "phishing_links": []}
 
-    # ALWAYS return JSON (tester requirement)
+    # Always JSON output
     return JSONResponse(
         status_code=200,
         content={
