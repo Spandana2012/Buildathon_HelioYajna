@@ -1,10 +1,13 @@
 import os
 from fastapi import FastAPI, Header, HTTPException
-from app.models import HoneypotRequest, HoneypotResponse
-from app.detector import detect_scam
-from app.extractor import extract_intelligence
-from app.memory import update_conversation, get_metrics
-
+# from app.models import HoneypotRequest, HoneypotResponse
+# from app.detector import detect_scam
+# from app.extractor import extract_intelligence
+# from app.memory import update_conversation, get_metrics
+from honeypot_api.app.models import HoneypotRequest, HoneypotResponse
+from honeypot_api.app.detector import detect_scam
+from honeypot_api.app.extractor import extract_intelligence
+from honeypot_api.app.memory import update_conversation, get_metrics
 app = FastAPI()
 
 API_KEY = os.getenv("API_KEY", "changeme")
