@@ -1,6 +1,7 @@
-import os
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+import os
 
 from honeypot_api.app.detector import detect_scam
 from honeypot_api.app.extractor import extract_intelligence
@@ -10,38 +11,37 @@ app = FastAPI()
 
 API_KEY = os.getenv("API_KEY", "changeme")
 
-@app.post("/honeypot")
+@app.post("/honeypot", include_in_schema=False)
 async def honeypot(
     request: Request,
     x_api_key: str = Header(None)
 ):
-    # 1️⃣ API key validation
+    # API key check
     if x_api_key != API_KEY:
         return JSONResponse(
             status_code=401,
             content={"detail": "Unauthorized"}
         )
 
-    # 2️⃣ SAFELY read body (tester may send nothing)
-    try:
-        body = await request.json()
-        if not isinstance(body, dict):
+    # NEVER force JSON parsing
+    body = {}
+    if request.headers.get("content-type") == "application/json":
+        try:
+            body = await request.json()
+        except Exception:
             body = {}
-    except Exception:
-        body = {}
 
-    # 3️⃣ SAFE defaults (CRITICAL)
-    conversation_id = str(body.get("conversation_id") or "default")
-    message = str(body.get("message") or "")
+    conversation_id = str(body.get("conversation_id", "default"))
+    message = str(body.get("message", ""))
 
-    # 4️⃣ SAFE memory update
+    # Safe memory
     try:
         update_conversation(conversation_id)
         turns, duration = get_metrics(conversation_id)
     except Exception:
         turns, duration = 1, 0
 
-    # 5️⃣ SAFE scam detection & extraction
+    # Safe logic
     try:
         scam_detected = detect_scam(message)
     except Exception:
@@ -56,7 +56,7 @@ async def honeypot(
             "phishing_links": []
         }
 
-    # 6️⃣ ALWAYS return valid JSON (no crash possible)
+    # ALWAYS return JSON (tester requirement)
     return JSONResponse(
         status_code=200,
         content={
