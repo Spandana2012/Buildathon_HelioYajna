@@ -1,13 +1,28 @@
 import os
-from fastapi import FastAPI, Header, Request
+from fastapi import FastAPI, Header
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List, Dict, Any
 
 app = FastAPI()
 
 API_KEY = os.getenv("API_KEY", "changeme")
 
 
-# Generate believable honeypot reply
+# GUVI request format model
+class MessageModel(BaseModel):
+    sender: str
+    text: str
+    timestamp: int
+
+
+class HoneypotRequestModel(BaseModel):
+    sessionId: str
+    message: MessageModel
+    conversationHistory: List[Dict[str, Any]] = []
+    metadata: Dict[str, Any] = {}
+
+
 def generate_reply(text: str) -> str:
     msg = text.lower()
 
@@ -26,36 +41,17 @@ def generate_reply(text: str) -> str:
 
 
 @app.post("/honeypot")
-async def honeypot(request: Request, x_api_key: str = Header(None)):
+async def honeypot(payload: HoneypotRequestModel, x_api_key: str = Header(None)):
 
-    # API key validation
     if x_api_key != API_KEY:
         return JSONResponse(
             status_code=401,
             content={"status": "error", "reply": "Unauthorized"}
         )
 
-    # Safe JSON parsing
-    try:
-        body = await request.json()
-        if not isinstance(body, dict):
-            body = {}
-    except Exception:
-        body = {}
+    scam_text = payload.message.text
+    reply = generate_reply(scam_text)
 
-    # GUVI format parsing
-    session_id = body.get("sessionId", "default")
-
-    message_obj = body.get("message", {})
-    if not isinstance(message_obj, dict):
-        message_obj = {}
-
-    scam_text = message_obj.get("text", "")
-
-    # Generate reply
-    reply = generate_reply(str(scam_text))
-
-    # Must return ONLY this format
     return JSONResponse(
         status_code=200,
         content={
