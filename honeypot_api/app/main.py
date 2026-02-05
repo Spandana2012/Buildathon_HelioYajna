@@ -2,42 +2,40 @@ import os
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 
-from honeypot_api.app.detector import detect_scam
-from honeypot_api.app.extractor import extract_intelligence
-from honeypot_api.app.memory import add_message, get_metrics, get_conversation
-
 app = FastAPI()
 
 API_KEY = os.getenv("API_KEY", "changeme")
 
 
-# Generate honeypot reply (simple believable human response)
-def generate_reply(message: str) -> str:
-    msg = message.lower()
+# Generate believable honeypot reply
+def generate_reply(text: str) -> str:
+    msg = text.lower()
 
     if "otp" in msg:
         return "Okay sir, I received OTP message. Should I share it here?"
-    if "account" in msg and "blocked" in msg:
-        return "Oh no 😟 please help me, what should I do now?"
+    if "blocked" in msg or "suspended" in msg:
+        return "Why is my account being suspended? I didn’t do anything."
     if "link" in msg or "click" in msg:
-        return "Okay, should I open the link now? Is it safe?"
+        return "Okay, should I open the link now? Please confirm."
     if "upi" in msg:
-        return "I can pay. Please share your UPI ID properly."
-    if "bank" in msg:
-        return "Okay sir, which bank department are you from?"
+        return "Sure, please share your UPI ID properly so I can pay."
+    if "account number" in msg:
+        return "Okay, I can share. Can you confirm your bank officer ID first?"
 
-    return "Sorry I am confused. Can you explain again?"
+    return "Sorry, I am confused. Can you explain again?"
 
 
-@app.api_route("/honeypot", methods=["GET", "POST", "HEAD"])
+@app.post("/honeypot")
 async def honeypot(request: Request, x_api_key: str = Header(None)):
 
-    # Always validate API key
+    # API key validation
     if x_api_key != API_KEY:
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "reply": "Unauthorized"}
+        )
 
-    # Safe request body handling
-    body = {}
+    # Safe JSON parsing
     try:
         body = await request.json()
         if not isinstance(body, dict):
@@ -45,52 +43,23 @@ async def honeypot(request: Request, x_api_key: str = Header(None)):
     except Exception:
         body = {}
 
-    conversation_id = str(body.get("conversation_id") or "default")
-    message = str(body.get("message") or "")
+    # GUVI format parsing
+    session_id = body.get("sessionId", "default")
 
-    # Store scammer message
-    add_message(conversation_id, "scammer", message)
+    message_obj = body.get("message", {})
+    if not isinstance(message_obj, dict):
+        message_obj = {}
 
-    # Scam detection + extraction
-    scam_detected = detect_scam(message)
-    extracted = extract_intelligence(message)
+    scam_text = message_obj.get("text", "")
 
-    # Honeypot reply (conversation building)
-    reply = generate_reply(message)
-    add_message(conversation_id, "honeypot", reply)
+    # Generate reply
+    reply = generate_reply(str(scam_text))
 
-    turns, duration = get_metrics(conversation_id)
-
+    # Must return ONLY this format
     return JSONResponse(
         status_code=200,
         content={
-            "scam_detected": scam_detected,
-            "engagement_metrics": {
-                "conversation_turns": turns,
-                "engagement_duration_seconds": duration
-            },
-            "extracted_intelligence": extracted,
-            "honeypot_reply": reply
-        }
-    )
-
-
-@app.get("/conversation/{conversation_id}")
-async def show_conversation(conversation_id: str, x_api_key: str = Header(None)):
-
-    if x_api_key != API_KEY:
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-
-    convo = get_conversation(conversation_id)
-
-    if convo is None:
-        return JSONResponse(status_code=404, content={"detail": "Conversation not found"})
-
-    return JSONResponse(
-        status_code=200,
-        content={
-            "conversation_id": conversation_id,
-            "turns": convo["turns"],
-            "history": convo["history"]
+            "status": "success",
+            "reply": reply
         }
     )
